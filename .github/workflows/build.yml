@@ -1,11 +1,9 @@
 name: Build Dune 2000
 
 on:
-  push:
-    branches: [mp]
-  pull_request:
-    branches: [mp]
   workflow_dispatch:
+  push:
+  pull_request:
 
 permissions:
   contents: read
