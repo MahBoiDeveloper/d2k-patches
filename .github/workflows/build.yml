@@ -1,0 +1,72 @@
+name: Build Dune 2000
+
+on:
+  push:
+    branches: [mp]
+  pull_request:
+    branches: [mp]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = "$env:RUNNER_TEMP\win-builds.zip"
+          $destination = "$env:RUNNER_TEMP\win-builds"
+
+          Invoke-WebRequest -Uri 'https://github.com/FunkyFr3sh/petool/releases/download/v20231004/win-builds-for-patching.zip' -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $destination
+
+          Set-Location "$destination\win-builds-for-patching"
+          $env:YYPREFIX = 'C:/win-builds-patch-32'
+          $env:PATH = "C:\win-builds-patch-32\bin;$env:PATH"
+
+          # Установка в порядке, указанном в win-install.bat, без pause.
+          & .\yypkg.exe -init
+          if ($LASTEXITCODE -ne 0) {
+            throw 'yypkg initialization failed'
+          }
+
+          foreach ($line in Get-Content .\win-install.bat) {
+            if ($line -match '^yypkg -install (.+)$') {
+              $package = $Matches[1].Trim()
+              & .\yypkg.exe -install $package
+              if ($LASTEXITCODE -ne 0) {
+                throw "Installation failed: $package"
+              }
+            }
+          }
+
+          Copy-Item .\tools\*.exe C:\win-builds-patch-32\bin\ -Force
+
+      - name: Build
+        shell: cmd
+        run: |
+          set "PATH=C:\win-builds-patch-32\bin;%SystemRoot%\System32;%SystemRoot%"
+          gmake clean
+          if errorlevel 1 exit /b 1
+          gmake REV=${{ github.sha }}
+          if errorlevel 1 exit /b 1
+          if not exist dune2000.exe exit /b 1
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: dune2000-mp-${{ github.sha }}
+          path: dune2000.exe
+          if-no-files-found: error
+          retention-days: 30
